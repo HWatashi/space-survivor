@@ -1,3 +1,4 @@
+from enum import Enum, auto
 from random import randint
 
 import pygame
@@ -15,70 +16,117 @@ from settings import (
 )
 
 
+class GameState(Enum):
+    PLAYING = auto()
+    GAME_OVER = auto()
+
+
 class Game:
     def __init__(self, screen: pygame.Surface) -> None:
         self.screen = screen
         self.bounds = screen.get_rect()
         self.clock = pygame.time.Clock()
-        self.player = Player(self.bounds.center)
+        self.score_font = pygame.font.Font(None, 32)
+        self.title_font = pygame.font.Font(None, 72)
+        self.pressed_scancodes: set[int] = set()
         self.projectiles: list[Projectile] = []
-        self.fire_cooldown_ms = 0
         self.enemies: list[Enemy] = []
+        self._reset_round()
+
+    def _reset_round(self) -> None:
+        self.state = GameState.PLAYING
+        self.player = Player(self.bounds.center)
+        self.projectiles.clear()
+        self.enemies.clear()
+        self.pressed_scancodes.clear()
+        self.fire_cooldown_ms = 0
         self.enemy_spawn_elapsed_ms = 0
         self.score = 0
-        self.score_font = pygame.font.Font(None, 32)
 
     def run(self) -> None:
-        pressed_scancodes: set[int] = set()
         while True:
             elapsed_ms = self.clock.tick(FPS)
-            dt = elapsed_ms / 1000
+            restarted = False
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         return
-                    pressed_scancodes.add(event.scancode)
+                    if self.state is GameState.GAME_OVER:
+                        if event.scancode == pygame.KSCAN_R:
+                            self._reset_round()
+                            restarted = True
+                    elif not restarted:
+                        self.pressed_scancodes.add(event.scancode)
                 elif event.type == pygame.KEYUP:
-                    pressed_scancodes.discard(event.scancode)
+                    self.pressed_scancodes.discard(event.scancode)
                 elif event.type == pygame.WINDOWFOCUSLOST:
-                    pressed_scancodes.clear()
+                    self.pressed_scancodes.clear()
 
-            self.player.update(pressed_scancodes, dt, self.bounds)
+            if self.state is GameState.PLAYING and not restarted:
+                self._update_playing(elapsed_ms)
+            self._draw()
 
-            for projectile in self.projectiles:
-                projectile.update(dt)
+    def _update_playing(self, elapsed_ms: int) -> None:
+        dt = elapsed_ms / 1000
+        self.player.update(self.pressed_scancodes, dt, self.bounds)
 
-            self._update_enemies(dt, elapsed_ms)
-            self.fire_cooldown_ms = max(0, self.fire_cooldown_ms - elapsed_ms)
-            if (
-                pygame.KSCAN_SPACE in pressed_scancodes
-                and self.fire_cooldown_ms == 0
-            ):
-                projectile = Projectile(self.player.rect.midtop)
-                if projectile.rect.colliderect(self.bounds):
-                    self.projectiles.append(projectile)
-                self.fire_cooldown_ms = FIRE_COOLDOWN_MS
+        for projectile in self.projectiles:
+            projectile.update(dt)
 
-            self._resolve_hits()
-            self.projectiles = [
-                projectile
-                for projectile in self.projectiles
-                if projectile.rect.colliderect(self.bounds)
-            ]
+        self._update_enemies(dt, elapsed_ms)
+        self.fire_cooldown_ms = max(0, self.fire_cooldown_ms - elapsed_ms)
+        if (
+            pygame.KSCAN_SPACE in self.pressed_scancodes
+            and self.fire_cooldown_ms == 0
+        ):
+            projectile = Projectile(self.player.rect.midtop)
+            if projectile.rect.colliderect(self.bounds):
+                self.projectiles.append(projectile)
+            self.fire_cooldown_ms = FIRE_COOLDOWN_MS
 
-            self.screen.fill(BACKGROUND_COLOR)
-            for projectile in self.projectiles:
-                projectile.draw(self.screen)
-            for enemy in self.enemies:
-                enemy.draw(self.screen)
-            self.player.draw(self.screen)
-            score_image = self.score_font.render(
-                f"Score: {self.score}", True, (230, 238, 252)
-            )
-            self.screen.blit(score_image, (16, 16))
-            pygame.display.flip()
+        self._resolve_hits()
+        self.projectiles = [
+            projectile
+            for projectile in self.projectiles
+            if projectile.rect.colliderect(self.bounds)
+        ]
+        self._resolve_player_collisions()
+
+    def _draw(self) -> None:
+        self.screen.fill(BACKGROUND_COLOR)
+        for projectile in self.projectiles:
+            projectile.draw(self.screen)
+        for enemy in self.enemies:
+            enemy.draw(self.screen)
+        self.player.draw(self.screen)
+
+        color = (230, 238, 252)
+        score_image = self.score_font.render(
+            f"Score: {self.score}", True, color
+        )
+        self.screen.blit(score_image, (16, 16))
+        hp_image = self.score_font.render(f"HP: {self.player.hp}", True, color)
+        hp_rect = hp_image.get_rect(topright=(self.bounds.right - 16, 16))
+        self.screen.blit(hp_image, hp_rect)
+
+        if self.state is GameState.GAME_OVER:
+            self._draw_game_over()
+        pygame.display.flip()
+
+    def _draw_game_over(self) -> None:
+        panel = pygame.Rect(0, 0, 420, 200)
+        panel.center = self.bounds.center
+        pygame.draw.rect(self.screen, (22, 30, 51), panel, border_radius=12)
+        for text, font, offset_y in (
+            ("Game Over", self.title_font, -50),
+            (f"Final score: {self.score}", self.score_font, 10),
+            ("Press R to restart", self.score_font, 57),
+        ):
+            image = font.render(text, True, (230, 238, 252))
+            center = panel.centerx, panel.centery + offset_y
+            self.screen.blit(image, image.get_rect(center=center))
 
     def _update_enemies(self, dt: float, elapsed_ms: int) -> None:
         for enemy in self.enemies:
@@ -106,3 +154,16 @@ class Game:
             else:
                 surviving_projectiles.append(projectile)
         self.projectiles = surviving_projectiles
+
+    def _resolve_player_collisions(self) -> None:
+        surviving_enemies: list[Enemy] = []
+        for enemy in self.enemies:
+            if (
+                self.player.rect.colliderect(enemy.rect)
+                and self.player.take_damage()
+            ):
+                continue
+            surviving_enemies.append(enemy)
+        self.enemies = surviving_enemies
+        if self.player.hp == 0:
+            self.state = GameState.GAME_OVER
