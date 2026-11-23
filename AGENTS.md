@@ -34,5 +34,11 @@ Space Survivor is a 2D arcade game developed in Python using pygame-ce.
 - Never use destructive Git commands without explicit approval.
 - Do not modify the virtual environment directly.
 
+## Python Execution
+- Always use `.venv/bin/python` to run Python scripts.
+- Always use `.venv/bin/python -m pip` to manage dependencies.
+- Never install packages into the system Python.
+- Do not assume the virtual environment is activated.
+
 ## Learning
 The project owner is learning game development. Explain important architectural decisions and new Pygame concepts in Russian.
