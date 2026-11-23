@@ -1,0 +1,47 @@
+import pygame
+
+from settings import PLAYER_SIZE, PLAYER_SPEED
+
+
+class Player:
+    def __init__(self, center: tuple[int, int]) -> None:
+        self.image = pygame.Surface(PLAYER_SIZE, pygame.SRCALPHA)
+        pygame.draw.polygon(
+            self.image,
+            (174, 205, 230),
+            [(24, 1), (33, 28), (46, 47), (24, 40), (1, 47), (15, 28)],
+        )
+        pygame.draw.polygon(
+            self.image, (44, 108, 157), [(24, 7), (32, 33), (24, 39), (16, 33)]
+        )
+        pygame.draw.ellipse(self.image, (104, 233, 248), (20, 18, 8, 12))
+        pygame.draw.polygon(
+            self.image, (255, 153, 72), [(19, 42), (29, 42), (24, 51)]
+        )
+        self.rect = self.image.get_rect(center=center)
+        self.position = pygame.Vector2(self.rect.topleft)
+
+    def update(
+        self, keys: pygame.key.ScancodeWrapper, dt: float, bounds: pygame.Rect
+    ) -> None:
+        left = keys[pygame.K_a] or keys[pygame.K_LEFT]
+        right = keys[pygame.K_d] or keys[pygame.K_RIGHT]
+        up = keys[pygame.K_w] or keys[pygame.K_UP]
+        down = keys[pygame.K_s] or keys[pygame.K_DOWN]
+        direction = pygame.Vector2(right - left, down - up)
+
+        if direction:
+            # Normalizing keeps diagonal and horizontal speeds equal.
+            self.position += direction.normalize() * PLAYER_SPEED * dt
+
+        # Clamp the float position so subpixel movement survives between frames.
+        self.position.x = max(
+            bounds.left, min(self.position.x, bounds.right - self.rect.width)
+        )
+        self.position.y = max(
+            bounds.top, min(self.position.y, bounds.bottom - self.rect.height)
+        )
+        self.rect.topleft = round(self.position.x), round(self.position.y)
+
+    def draw(self, screen: pygame.Surface) -> None:
+        screen.blit(self.image, self.rect)

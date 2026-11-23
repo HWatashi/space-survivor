@@ -1,0 +1,7 @@
+WINDOW_SIZE = (1280, 720)
+WINDOW_TITLE = "Space Survivor"
+FPS = 60
+BACKGROUND_COLOR = (9, 13, 26)
+
+PLAYER_SIZE = (48, 52)
+PLAYER_SPEED = 360.0  # Pixels per second
