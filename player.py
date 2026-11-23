@@ -22,12 +22,24 @@ class Player:
         self.position = pygame.Vector2(self.rect.topleft)
 
     def update(
-        self, keys: pygame.key.ScancodeWrapper, dt: float, bounds: pygame.Rect
+        self, pressed_scancodes: set[int], dt: float, bounds: pygame.Rect
     ) -> None:
-        left = keys[pygame.K_a] or keys[pygame.K_LEFT]
-        right = keys[pygame.K_d] or keys[pygame.K_RIGHT]
-        up = keys[pygame.K_w] or keys[pygame.K_UP]
-        down = keys[pygame.K_s] or keys[pygame.K_DOWN]
+        left = (
+            pygame.KSCAN_A in pressed_scancodes
+            or pygame.KSCAN_LEFT in pressed_scancodes
+        )
+        right = (
+            pygame.KSCAN_D in pressed_scancodes
+            or pygame.KSCAN_RIGHT in pressed_scancodes
+        )
+        up = (
+            pygame.KSCAN_W in pressed_scancodes
+            or pygame.KSCAN_UP in pressed_scancodes
+        )
+        down = (
+            pygame.KSCAN_S in pressed_scancodes
+            or pygame.KSCAN_DOWN in pressed_scancodes
+        )
         direction = pygame.Vector2(right - left, down - up)
 
         if direction:
