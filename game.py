@@ -4,12 +4,14 @@ from random import randint
 import pygame
 
 from enemy import Enemy
+from evolution import EvolutionManager
 from player import Player
 from projectile import Projectile
 from settings import (
     BACKGROUND_COLOR,
     ENEMY_SIZE,
     ENEMY_SPAWN_INTERVAL_MS,
+    EVOLUTION_NOTICE_COLOR,
     FIRE_COOLDOWN_MS,
     FPS,
     POINTS_PER_ENEMY,
@@ -31,6 +33,7 @@ class Game:
         self.pressed_scancodes: set[int] = set()
         self.projectiles: list[Projectile] = []
         self.enemies: list[Enemy] = []
+        self.evolution = EvolutionManager()
         self._reset_round()
 
     def _reset_round(self) -> None:
@@ -42,6 +45,7 @@ class Game:
         self.fire_cooldown_ms = 0
         self.enemy_spawn_elapsed_ms = 0
         self.score = 0
+        self.evolution.reset()
 
     def run(self) -> None:
         while True:
@@ -70,6 +74,7 @@ class Game:
 
     def _update_playing(self, elapsed_ms: int) -> None:
         dt = elapsed_ms / 1000
+        self.evolution.update(dt)
         self.player.update(self.pressed_scancodes, dt, self.bounds)
 
         for projectile in self.projectiles:
@@ -110,6 +115,20 @@ class Game:
         hp_image = self.score_font.render(f"HP: {self.player.hp}", True, color)
         hp_rect = hp_image.get_rect(topright=(self.bounds.right - 16, 16))
         self.screen.blit(hp_image, hp_rect)
+        minutes, seconds = divmod(self.evolution.whole_seconds, 60)
+        time_image = self.score_font.render(
+            f"Time: {minutes:02d}:{seconds:02d}", True, color
+        )
+        time_rect = time_image.get_rect(midtop=(self.bounds.centerx, 16))
+        self.screen.blit(time_image, time_rect)
+        if self.evolution.notice_remaining > 0:
+            notice = self.score_font.render(
+                "KAMIKAZE I UNLOCKED", True, EVOLUTION_NOTICE_COLOR
+            )
+            notice_rect = notice.get_rect(
+                midtop=(self.bounds.centerx, time_rect.bottom + 8)
+            )
+            self.screen.blit(notice, notice_rect)
 
         if self.state is GameState.GAME_OVER:
             self._draw_game_over()
@@ -141,7 +160,11 @@ class Game:
         while self.enemy_spawn_elapsed_ms >= ENEMY_SPAWN_INTERVAL_MS:
             self.enemy_spawn_elapsed_ms -= ENEMY_SPAWN_INTERVAL_MS
             left = randint(self.bounds.left, self.bounds.right - ENEMY_SIZE[0])
-            self.enemies.append(Enemy(left, self.bounds.top))
+            # The remaining accumulator is the age of this scheduled spawn.
+            level = self.evolution.choose_enemy_level(
+                seconds_since_spawn=self.enemy_spawn_elapsed_ms / 1000
+            )
+            self.enemies.append(Enemy(left, self.bounds.top, level))
 
     def _resolve_hits(self) -> None:
         surviving_projectiles: list[Projectile] = []
