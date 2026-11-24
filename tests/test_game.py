@@ -3,10 +3,10 @@ from unittest.mock import Mock, patch
 
 import pygame
 
-from enemy import Enemy
+from enemy import DodgeState, Enemy
 from game import Game, GameState
 from projectile import Projectile
-from settings import ENEMY_SPEED, PLAYER_MAX_HP, WINDOW_SIZE
+from settings import ENEMY_SPEED, PLAYER_MAX_HP, PROJECTILE_SIZE, WINDOW_SIZE
 
 
 class GameTest(unittest.TestCase):
@@ -93,18 +93,22 @@ class GameTest(unittest.TestCase):
         )
 
     def test_game_over_stops_simulation(self) -> None:
-        self.game.evolution.update(30.5)
+        self.game.evolution.update(90.5)
         self.game.player.hp = 1
         self.add_contact()
-        enemy = Enemy(24, 120)
-        projectile = Projectile((100, 200))
+        enemy = Enemy(24, 120, evolution_level=2)
+        projectile = Projectile((enemy.rect.centerx, 200))
+        enemy.try_dodge([projectile], self.game.bounds)
+        self.assertIs(enemy.dodge_state, DodgeState.DODGING)
         self.game.enemies.append(enemy)
         self.game.projectiles.append(projectile)
         self.game._update_playing(0)
         self.assertIs(self.game.state, GameState.GAME_OVER)
         self.assertEqual(self.game.player.hp, 0)
 
-        start = self.game.player.position.copy(), enemy.y, projectile.y
+        start = (
+            self.game.player.position.copy(), enemy.rect.copy(), projectile.y
+        )
         self.game.enemy_spawn_elapsed_ms = 1499
         self.game.fire_cooldown_ms = 100
         self.run_frames(
@@ -116,32 +120,33 @@ class GameTest(unittest.TestCase):
             )],
             [pygame.event.Event(pygame.QUIT)],
         )
-        end = self.game.player.position, enemy.y, projectile.y
+        end = self.game.player.position, enemy.rect, projectile.y
         self.assertEqual(start, end)
+        self.assertIs(enemy.dodge_state, DodgeState.DODGING)
         self.assertEqual(self.game.enemies, [enemy])
         self.assertEqual(self.game.projectiles, [projectile])
         self.assertEqual(self.game.enemy_spawn_elapsed_ms, 1499)
         self.assertEqual(self.game.fire_cooldown_ms, 100)
-        self.assertEqual(self.game.evolution.survival_seconds, 30.5)
+        self.assertEqual(self.game.evolution.survival_seconds, 90.5)
         self.assertEqual(self.game.evolution.notice_remaining, 2.5)
 
     def test_game_over_blocks_unlock_when_time_is_near_threshold(self) -> None:
-        self.game.evolution.update(29.995)
+        self.game.evolution.update(89.995)
         self.game.state = GameState.GAME_OVER
         self.run_frames([], [pygame.event.Event(pygame.QUIT)])
-        self.assertEqual(self.game.evolution.survival_seconds, 29.995)
-        self.assertEqual(self.game.evolution.max_level, 0)
+        self.assertEqual(self.game.evolution.survival_seconds, 89.995)
+        self.assertEqual(self.game.evolution.max_level, 1)
         self.assertEqual(self.game.evolution.notice_remaining, 0)
 
     def test_restart_resets_round_and_held_keys(self) -> None:
-        self.game.evolution.update(31)
+        self.game.evolution.update(91)
         self.game.player.hp = 1
         self.add_contact()
         self.game._update_playing(0)
         self.game.player.rect.x = 30
         self.game.player.position.x = 30
         self.game.score = 20
-        self.game.enemies.append(Enemy(24, 120))
+        self.game.enemies.append(Enemy(24, 120, evolution_level=2))
         self.game.projectiles.append(Projectile((100, 200)))
         self.game.enemy_spawn_elapsed_ms = 900
         self.game.fire_cooldown_ms = 140
@@ -230,6 +235,16 @@ class GameTest(unittest.TestCase):
         self.assertEqual(draw.call_count, 2)
         self.assertEqual(self.game.enemy_spawn_elapsed_ms, 1)
 
+    def test_spawns_use_scheduled_time_across_second_unlock(self) -> None:
+        self.game.evolution.update(87)
+        with patch("game.randint", return_value=0), patch(
+            "evolution.random", side_effect=[0.5, 0.5, 0.1]
+        ):
+            self.game._update_playing(4501)
+        levels = [enemy.evolution_level for enemy in self.game.enemies]
+        self.assertEqual(levels, [0, 2, 1])
+        self.assertEqual(self.game.enemy_spawn_elapsed_ms, 1)
+
     def test_hud_renders_timer_and_notice_only_in_its_window(self) -> None:
         font = Mock(wraps=self.game.score_font)
         self.game.score_font = font
@@ -245,6 +260,17 @@ class GameTest(unittest.TestCase):
             texts = [call.args[0] for call in font.render.call_args_list]
             self.assertIn("Time: 00:33", texts)
             self.assertNotIn("KAMIKAZE I UNLOCKED", texts)
+            font.render.reset_mock()
+            self.game.evolution.update(57)
+            self.game._draw()
+            texts = [call.args[0] for call in font.render.call_args_list]
+            self.assertIn("Time: 01:30", texts)
+            self.assertIn("KAMIKAZE II UNLOCKED", texts)
+            font.render.reset_mock()
+            self.game.evolution.update(3)
+            self.game._draw()
+            texts = [call.args[0] for call in font.render.call_args_list]
+            self.assertNotIn("KAMIKAZE II UNLOCKED", texts)
 
     def test_evolved_enemy_uses_existing_damage_and_scoring(self) -> None:
         rect = self.game.player.rect
@@ -260,3 +286,30 @@ class GameTest(unittest.TestCase):
         self.assertEqual(self.game.score, 10)
         self.assertFalse(self.game.enemies)
         self.assertFalse(self.game.projectiles)
+
+    def test_enemy_can_be_hit_during_dodge(self) -> None:
+        enemy = Enemy(200, 200, evolution_level=2)
+        shot = Projectile((enemy.rect.centerx, 200 + PROJECTILE_SIZE[1]))
+        self.game.enemies.append(enemy)
+        self.game.projectiles.append(shot)
+
+        self.game._update_playing(1)
+
+        self.assertIs(enemy.dodge_state, DodgeState.DODGING)
+        self.assertFalse(self.game.enemies)
+        self.assertFalse(self.game.projectiles)
+        self.assertEqual(self.game.score, 10)
+
+    def test_dodged_shot_remains_active(self) -> None:
+        enemy = Enemy(200, 200, evolution_level=2)
+        shot = Projectile((enemy.rect.centerx, 300 + PROJECTILE_SIZE[1]))
+        self.game.enemies.append(enemy)
+        self.game.projectiles.append(shot)
+
+        for _ in range(10):
+            self.game._update_playing(15)
+
+        self.assertIs(enemy.dodge_state, DodgeState.EXHAUSTED)
+        self.assertEqual(self.game.projectiles, [shot])
+        self.assertEqual(self.game.enemies, [enemy])
+        self.assertEqual(self.game.score, 0)

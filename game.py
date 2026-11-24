@@ -77,10 +77,10 @@ class Game:
         self.evolution.update(dt)
         self.player.update(self.pressed_scancodes, dt, self.bounds)
 
+        self._update_enemies(dt, elapsed_ms)
         for projectile in self.projectiles:
             projectile.update(dt)
 
-        self._update_enemies(dt, elapsed_ms)
         self.fire_cooldown_ms = max(0, self.fire_cooldown_ms - elapsed_ms)
         if (
             pygame.KSCAN_SPACE in self.pressed_scancodes
@@ -122,8 +122,9 @@ class Game:
         time_rect = time_image.get_rect(midtop=(self.bounds.centerx, 16))
         self.screen.blit(time_image, time_rect)
         if self.evolution.notice_remaining > 0:
+            level = ("I", "II")[self.evolution.max_level - 1]
             notice = self.score_font.render(
-                "KAMIKAZE I UNLOCKED", True, EVOLUTION_NOTICE_COLOR
+                f"KAMIKAZE {level} UNLOCKED", True, EVOLUTION_NOTICE_COLOR
             )
             notice_rect = notice.get_rect(
                 midtop=(self.bounds.centerx, time_rect.bottom + 8)
@@ -149,6 +150,7 @@ class Game:
 
     def _update_enemies(self, dt: float, elapsed_ms: int) -> None:
         for enemy in self.enemies:
+            enemy.try_dodge(self.projectiles, self.bounds)
             enemy.update(dt)
         # Enemies start above the window and are removed only below it.
         self.enemies = [
