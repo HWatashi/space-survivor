@@ -45,12 +45,33 @@ class EvolutionTest(unittest.TestCase):
 
     def test_evolved_enemy_moves_30_percent_faster(self) -> None:
         base = Enemy(0, 0)
-        evolved = Enemy(0, 0, evolution_level=1)
+        evolved = [Enemy(0, 0, evolution_level=level) for level in (1, 2)]
         start = base.y
         for _ in range(3):
             base.update(0.25)
-            evolved.update(0.25)
+            for enemy in evolved:
+                enemy.update(0.25)
         self.assertEqual(base.speed, ENEMY_SPEED)
-        self.assertAlmostEqual(evolved.speed, ENEMY_SPEED * 1.3)
-        self.assertAlmostEqual(evolved.y - start, (base.y - start) * 1.3)
-        self.assertEqual(evolved.rect.size, base.rect.size)
+        for enemy in evolved:
+            self.assertAlmostEqual(enemy.speed, 234)
+            self.assertAlmostEqual(enemy.y - start, (base.y - start) * 1.3)
+            self.assertEqual(enemy.rect.size, base.rect.size)
+
+    def test_level_two_unlocks_at_90_seconds(self) -> None:
+        self.assertTrue(self.evolution.update(89.999))
+        self.assertEqual(self.evolution.max_level, 1)
+        with patch("evolution.random", return_value=0.5):
+            self.assertEqual(self.evolution.choose_enemy_level(), 0)
+            self.assertTrue(self.evolution.update(0.001))
+            self.assertEqual(self.evolution.max_level, 2)
+            self.assertEqual(self.evolution.choose_enemy_level(), 2)
+        self.assertAlmostEqual(self.evolution.notice_remaining, 3)
+        self.assertFalse(self.evolution.update(0))
+
+    def test_level_two_spawn_probability_boundaries(self) -> None:
+        self.assertTrue(self.evolution.update(91))
+        rolls = [0.0, 0.399, 0.4, 0.649, 0.65, 0.99]
+        with patch("evolution.random", side_effect=rolls):
+            levels = [self.evolution.choose_enemy_level() for _ in range(6)]
+        self.assertEqual(levels, [1, 1, 2, 2, 0, 0])
+        self.assertEqual(self.evolution.notice_remaining, 2)
